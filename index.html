@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Box Pushing Simulator</title>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/cannon.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { width: 100vw; height: 100vh; display: block; }
+        #score { position: absolute; top: 10px; left: 10px; font-size: 32px; color: red; font-weight: bold; }
+        #clearButton { 
+            position: absolute; 
+            right: 20px; 
+            top: 50%; 
+            transform: translateY(-50%); 
+            padding: 10px 20px; 
+            font-size: 16px; 
+            cursor: pointer; 
+            background-color: #add8e6; 
+            border: none; 
+            border-radius: 5px; 
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); 
+            transition: background-color 0.3s; 
+            outline: 2px solid black;
+        }
+        #clearButton:hover {
+            background-color: #87cefa; 
+        }
+        #shopButton { 
+            position: absolute; 
+            right: 20px; 
+            top: 30%; 
+            transform: translateY(-50%); 
+            padding: 10px 20px; 
+            font-size: 16px; 
+            cursor: pointer; 
+            background-color: #add8e6; 
+            border: none; 
+            border-radius: 5px; 
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); 
+            transition: background-color 0.3s; 
+            outline: 2px solid black;
+        }
+        #shopButton:hover {
+            background-color: #87cefa; 
+        }
+        #title { 
+            position: absolute; 
+            top: 10px; 
+            left: 50%; 
+            transform: translateX(-50%); 
+            font-size: 48px; 
+            color: #fff; 
+            font-weight: bold; 
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7); 
+            font-family: 'Arial', sans-serif; 
+        }
+        #centerDot {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 12px;
+            height: 12px;
+            background-color: white;
+            border-radius: 50%;
+            border: 2px solid black;
+            transform: translate(-50%, -50%);
+        }
+        #shopWindow {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 300px;
+            padding: 20px;
+            background-color: rgba(255, 255, 255, 0.9);
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            display: none;
+        }
+        #shopWindow h2 {
+            margin: 0;
+            text-align: center;
+        }
+        .shopItem {
+            margin: 10px 0;
+            display: flex;
+            justify-content: space-between;
+        }
+        #closeShop {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            cursor: pointer;
+            background-color: red;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 5px 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="title">Box Pushing Simulator!</div>
+    <div id="score">Boxes Pushed: 0</div>
+    <button id="clearButton">Clear Boxes</button>
+    <button id="shopButton">Shop</button>
+    <div id="centerDot"></div>
+    <div id="shopWindow">
+        <button id="closeShop">X</button>
+        <h2>Shop</h2>
+        <div class="shopItem"><span>Sphere - 5 Boxes</span><button class="buyButton" data-cost="5">Buy</button></div>
+    </div>
+    <canvas id="renderCanvas"></canvas>
+    <script>
+        const canvas = document.getElementById("renderCanvas");
+        const engine = new BABYLON.Engine(canvas, true);
+
+        let score = 0;
+        const boxes = [];
+        const boxCooldown = 1000;
+        const lastScoredTime = new Map();
+        const centerDot = document.getElementById("centerDot");
+        let shouldLockPointer = true;
+        
+
+        const createSphere = (position) => {
+                const sphere = BABYLON.MeshBuilder.CreateSphere("sphere", { diameter: 1 }, scene);
+                sphere.position = position;
+                sphere.material = new BABYLON.StandardMaterial("sphereMat", scene);
+                sphere.material.diffuseColor = new BABYLON.Color3(0, 0, 1);
+                sphere.physicsImpostor = new BABYLON.PhysicsImpostor(sphere, BABYLON.PhysicsImpostor.SphereImpostor, { mass: 1 }, scene);
+                sphere.receiveShadows = true;
+                return sphere;
+            };
+
+        const createScene = function() {
+            const scene = new BABYLON.Scene(engine);
+            scene.clearColor = new BABYLON.Color3(0.678, 0.847, 0.902);
+
+            const gravity = new BABYLON.Vector3(0, -9.81, 0);
+            const physicsPlugin = new BABYLON.CannonJSPlugin();
+            scene.enablePhysics(gravity, physicsPlugin);
+
+            const camera = new BABYLON.FreeCamera("camera1", new BABYLON.Vector3(0, 2, -10), scene);
+            camera.setTarget(BABYLON.Vector3.Zero());
+            camera.attachControl(canvas, true);
+            scene.activeCamera = camera;
+
+            const light = new BABYLON.DirectionalLight("directionalLight", new BABYLON.Vector3(-1, -1, 0), scene);
+            light.position = new BABYLON.Vector3(10, 10, 0);
+            light.intensity = 0.7;
+            light.shadowEnabled = true;
+
+            const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 100, height: 100 }, scene);
+            ground.receiveShadows = true;
+            ground.material = new BABYLON.StandardMaterial("groundMat", scene);
+            ground.material.diffuseColor = new BABYLON.Color3(0, 1, 0);
+            ground.physicsImpostor = new BABYLON.PhysicsImpostor(ground, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0 }, scene);
+
+            
+            
+
+            const createCube = (position) => {
+                const cube = BABYLON.MeshBuilder.CreateBox("cube", { size: 1 }, scene);
+                cube.position = position;
+                cube.material = new BABYLON.StandardMaterial("cubeMat", scene);
+                cube.material.diffuseColor = new BABYLON.Color3(1, 0, 0);
+                cube.physicsImpostor = new BABYLON.PhysicsImpostor(cube, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 1 }, scene);
+                cube.receiveShadows = true;
+                boxes.push(cube);
+                lastScoredTime.set(cube.id, 0);
+                return cube;
+            };
+
+            
+
+            const player = BABYLON.MeshBuilder.CreateBox("player", { size: 1 }, scene);
+            player.position.y = 1;
+            player.physicsImpostor = new BABYLON.PhysicsImpostor(player, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 1 }, scene);
+            player.isPickable = false;
+
+            
+            
+
+            scene.registerBeforeRender(() => {
+                camera.position.x = player.position.x;
+                camera.position.y = player.position.y + 1;
+                camera.position.z = player.position.z;
+            });
+
+            const inputMap = {};
+            window.addEventListener("keydown", (evt) => {
+                inputMap[evt.key] = true;
+            });
+            window.addEventListener("keyup", (evt) => {
+                inputMap[evt.key] = false;
+            });
+
+            scene.onBeforeRenderObservable.add(() => {
+                const forward = camera.getDirection(BABYLON.Axis.Z);
+                const right = camera.getDirection(BABYLON.Axis.X);
+                if (inputMap["w"]) {
+                    player.position.addInPlace(forward.scale(0.1));
+                }
+                if (inputMap["s"]) {
+                    player.position.addInPlace(forward.scale(-0.1));
+                }
+                if (inputMap["a"]) {
+                    player.position.addInPlace(right.scale(-0.1));
+                }
+                if (inputMap["d"]) {
+                    player.position.addInPlace(right.scale(0.1));
+                }
+                if (inputMap[" "]) {
+                    player.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(0, 5, 0));
+                }
+
+                boxes.forEach(cube => {
+                    const distance = BABYLON.Vector3.Distance(player.position, cube.position);
+                    const currentTime = performance.now();
+                    if (distance < 1.5) {
+                        if (currentTime - lastScoredTime.get(cube.id) > boxCooldown) {
+                            score++;
+                            document.getElementById('score').innerText = `Boxes Pushed: ${score}`;
+                            lastScoredTime.set(cube.id, currentTime);
+                            const pushDirection = cube.position.subtract(player.position).normalize();
+                            cube.physicsImpostor.setLinearVelocity(pushDirection.scale(5));
+                        }
+                    }
+                });
+            });
+
+            setInterval(() => {
+                const xPosition = Math.random() * 10 - 5; 
+                const zPosition = Math.random() * 10 - 5; 
+                createCube(new BABYLON.Vector3(xPosition, 10, zPosition)); 
+            }, 5000); 
+
+            return { scene, camera };
+        };
+
+        const { scene, camera } = createScene(); 
+        engine.runRenderLoop(() => {
+            scene.render();
+        });
+
+        window.addEventListener("resize", () => {
+            engine.resize();
+        });
+
+        const lockMouse = () => {
+    if (document.getElementById('shopWindow').style.display === 'none') {
+        canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
+        canvas.requestPointerLock();
+    }
+};
+
+
+        document.addEventListener("click", lockMouse);
+
+        document.getElementById('clearButton').addEventListener('click', () => {
+            boxes.forEach(box => {
+                box.dispose();
+            });
+            boxes.length = 0;
+            score = 0;
+            document.getElementById('score').innerText = `Boxes Pushed: ${score}`;
+        });
+
+        document.getElementById('shopButton').addEventListener('click', () => {
+    document.getElementById('shopWindow').style.display = 'block';
+    document.exitPointerLock = document.exitPointerLock || document.mozExitPointerLock;
+    document.exitPointerLock();
+});
+
+window.addEventListener("keydown", (evt) => {
+    if (evt.key === "L" || evt.key === "l") {
+        shouldLockPointer = !shouldLockPointer;
+        if (!shouldLockPointer && document.pointerLockElement === canvas) {
+            document.exitPointerLock();
+        }
+    }
+});
+
+
+centerDot.addEventListener("click", () => {
+    if (document.pointerLockElement !== canvas) {
+        lockMouse();
+    }
+});
+
+
+canvas.addEventListener("click", () => {
+    if (shouldLockPointer && document.pointerLockElement !== canvas) {
+        lockMouse();
+    }
+});
+
+document.getElementById('closeShop').addEventListener('click', () => {
+    document.getElementById('shopWindow').style.display = 'none';
+    lockMouse();
+});
+
+
+document.querySelectorAll('.buyButton').forEach(button => {
+    button.addEventListener('click', function() {
+        const cost = parseInt(this.getAttribute('data-cost'));
+        if (score >= cost) {
+            score -= cost;
+            document.getElementById('score').innerText = `Boxes Pushed: ${score}`;
+            
+            if (this.parentElement.innerText.includes("Sphere")) {
+                createSphere(new BABYLON.Vector3(0, 5, 0));
+            }
+
+            alert(`Purchased for ${cost} boxes!`);
+        } else {
+            alert('Not enough boxes!');
+        }
+    });
+});
+    </script>
+</body>
+</html>
